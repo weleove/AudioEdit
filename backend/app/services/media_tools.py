@@ -3,14 +3,16 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
+import wave
 from pathlib import Path
 
 from app.config import Settings
 
 try:
+    import numpy as np
     import torch
 except Exception:  # pragma: no cover - torch import errors depend on runtime environment
+    np = None
     torch = None
 
 
@@ -19,6 +21,8 @@ class MediaProcessingError(RuntimeError):
 
 
 class MediaProcessor:
+    transformer_max_segment = 7.8
+    safe_default_segment = 7.5
     allowed_extensions = {
         ".mp3",
         ".wav",
@@ -97,36 +101,86 @@ class MediaProcessor:
         )
 
     def separate_stems(self, source_path: Path, output_dir: Path, stem: str) -> Path:
-        command = [
-            sys.executable,
-            "-m",
-            "demucs",
-            "--two-stems",
-            "vocals",
-            "--name",
-            self.settings.demucs_model,
-            "--out",
-            str(output_dir),
-            "-d",
-            self._resolve_demucs_device(),
-        ]
+        if torch is None or np is None:
+            raise MediaProcessingError(
+                "Demucs dependencies are not available in the backend environment."
+            )
 
-        segment = self.settings.demucs_segment.strip()
-        if segment:
-            command.extend(["--segment", segment])
+        try:
+            from demucs.apply import BagOfModels, apply_model
+            from demucs.htdemucs import HTDemucs
+            from demucs.pretrained import get_model
+        except Exception as exc:  # pragma: no cover - depends on runtime environment
+            raise MediaProcessingError(f"Failed to import Demucs runtime: {exc}") from exc
 
-        if self.settings.demucs_jobs > 0:
-            command.extend(["-j", str(self.settings.demucs_jobs)])
+        if stem not in {"vocals", "instrumental"}:
+            raise MediaProcessingError("Invalid stem selection. Supported values are vocals and instrumental.")
 
-        command.append(str(source_path))
-        self._run_command(command, "Stem separation failed")
+        device = self._resolve_demucs_device()
+        segment = self._resolve_demucs_segment()
+        segment_value = float(segment) if segment is not None else None
 
-        target_name = "vocals.wav" if stem == "vocals" else "no_vocals.wav"
-        matches = sorted(output_dir.rglob(target_name))
-        if not matches:
-            raise MediaProcessingError(f"Expected output file was not found: {target_name}")
+        try:
+            model = get_model(name=self.settings.demucs_model)
+        except Exception as exc:
+            raise MediaProcessingError(f"Failed to load Demucs model '{self.settings.demucs_model}': {exc}") from exc
 
-        return matches[0]
+        max_allowed_segment = float("inf")
+        if isinstance(model, HTDemucs):
+            max_allowed_segment = float(model.segment)
+        elif isinstance(model, BagOfModels):
+            max_allowed_segment = model.max_allowed_segment
+
+        if segment_value is not None and segment_value > max_allowed_segment:
+            segment_value = min(self.safe_default_segment, max_allowed_segment)
+
+        wav_tensor, sample_rate = self._load_pcm_wav(source_path)
+        if sample_rate != int(getattr(model, "samplerate", sample_rate)):
+            raise MediaProcessingError(
+                f"Unexpected sample rate for Demucs input: {sample_rate}. "
+                f"Expected {getattr(model, 'samplerate', sample_rate)}."
+            )
+
+        ref = wav_tensor.mean(0)
+        mean = ref.mean()
+        std = ref.std()
+        if float(std) <= 1e-8:
+            raise MediaProcessingError("Input audio appears silent after normalization and cannot be separated.")
+
+        normalized = (wav_tensor - mean) / std
+
+        with torch.no_grad():
+            sources = apply_model(
+                model,
+                normalized[None],
+                device=device,
+                shifts=1,
+                split=True,
+                overlap=0.25,
+                progress=False,
+                num_workers=max(self.settings.demucs_jobs, 0),
+                segment=segment_value,
+            )[0]
+
+        sources = sources * std + mean
+        source_names = list(getattr(model, "sources", []))
+        if "vocals" not in source_names:
+            raise MediaProcessingError("The selected Demucs model does not expose a vocals stem.")
+
+        vocals_index = source_names.index("vocals")
+        vocals = sources[vocals_index]
+        instrumental = torch.zeros_like(vocals)
+        for index, name in enumerate(source_names):
+            if name != "vocals":
+                instrumental += sources[index]
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        vocals_path = output_dir / "vocals.wav"
+        instrumental_path = output_dir / "no_vocals.wav"
+        self._write_pcm16_wav(vocals_path, vocals, sample_rate)
+        self._write_pcm16_wav(instrumental_path, instrumental, sample_rate)
+
+        return vocals_path if stem == "vocals" else instrumental_path
 
     def copy_to_output(self, source_path: Path, output_path: Path) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,6 +233,79 @@ class MediaProcessor:
             )
 
         return requested
+
+    def _resolve_demucs_segment(self) -> str | None:
+        raw_segment = self.settings.demucs_segment.strip()
+        if not raw_segment:
+            return None
+
+        try:
+            segment = float(raw_segment)
+        except ValueError as exc:
+            raise MediaProcessingError(
+                "Invalid DEMUCS_SEGMENT value. It must be a number such as 7.5."
+            ) from exc
+
+        if segment <= 0:
+            raise MediaProcessingError("Invalid DEMUCS_SEGMENT value. It must be greater than 0.")
+
+        if self._is_transformer_demucs_model() and segment > self.transformer_max_segment:
+            segment = self.safe_default_segment
+
+        return f"{segment:g}"
+
+    def _is_transformer_demucs_model(self) -> bool:
+        model_name = self.settings.demucs_model.strip().lower()
+        return model_name.startswith("htdemucs")
+
+    def _load_pcm_wav(self, source_path: Path) -> tuple["torch.Tensor", int]:
+        if np is None or torch is None:
+            raise MediaProcessingError("NumPy and PyTorch are required to read normalized WAV files.")
+
+        try:
+            with wave.open(str(source_path), "rb") as wav_file:
+                channels = wav_file.getnchannels()
+                sample_rate = wav_file.getframerate()
+                sample_width = wav_file.getsampwidth()
+                frame_count = wav_file.getnframes()
+                pcm_bytes = wav_file.readframes(frame_count)
+        except wave.Error as exc:
+            raise MediaProcessingError(f"Failed to read normalized WAV file: {exc}") from exc
+
+        if channels <= 0:
+            raise MediaProcessingError("Normalized WAV file does not contain valid audio channels.")
+        if sample_width != 2:
+            raise MediaProcessingError(
+                f"Unsupported normalized WAV sample width: {sample_width * 8} bits. Expected 16-bit PCM."
+            )
+
+        pcm = np.frombuffer(pcm_bytes, dtype=np.int16)
+        if pcm.size == 0:
+            raise MediaProcessingError("Normalized WAV file is empty.")
+
+        wav_tensor = torch.from_numpy(pcm.astype(np.float32) / 32768.0)
+        wav_tensor = wav_tensor.view(-1, channels).transpose(0, 1).contiguous()
+        return wav_tensor, sample_rate
+
+    def _write_pcm16_wav(self, output_path: Path, wav_tensor: "torch.Tensor", sample_rate: int) -> None:
+        if torch is None:
+            raise MediaProcessingError("PyTorch is required to write Demucs WAV outputs.")
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        clipped = wav_tensor.detach().cpu().float()
+        peak = float(clipped.abs().max())
+        if peak > 1:
+            clipped = clipped / max(1.01 * peak, 1.0)
+
+        pcm_tensor = (clipped.clamp(-1, 1) * 32767.0).round().short()
+        interleaved = pcm_tensor.transpose(0, 1).contiguous().numpy()
+
+        with wave.open(str(output_path), "wb") as wav_file:
+            wav_file.setnchannels(int(pcm_tensor.shape[0]))
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(interleaved.tobytes())
 
     def _detect_cuda_runtime(self) -> tuple[bool, str]:
         if torch is None:
