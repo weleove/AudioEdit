@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import wave
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from app.config import Settings
 
@@ -14,6 +15,11 @@ try:
 except Exception:  # pragma: no cover - torch import errors depend on runtime environment
     np = None
     torch = None
+
+if TYPE_CHECKING:
+    from torch import Tensor as TorchTensor
+else:  # pragma: no cover - type-only alias
+    TorchTensor = Any
 
 
 class MediaProcessingError(RuntimeError):
@@ -258,7 +264,7 @@ class MediaProcessor:
         model_name = self.settings.demucs_model.strip().lower()
         return model_name.startswith("htdemucs")
 
-    def _load_pcm_wav(self, source_path: Path) -> tuple["torch.Tensor", int]:
+    def _load_pcm_wav(self, source_path: Path) -> tuple[TorchTensor, int]:
         if np is None or torch is None:
             raise MediaProcessingError("NumPy and PyTorch are required to read normalized WAV files.")
 
@@ -287,7 +293,7 @@ class MediaProcessor:
         wav_tensor = wav_tensor.view(-1, channels).transpose(0, 1).contiguous()
         return wav_tensor, sample_rate
 
-    def _write_pcm16_wav(self, output_path: Path, wav_tensor: "torch.Tensor", sample_rate: int) -> None:
+    def _write_pcm16_wav(self, output_path: Path, wav_tensor: TorchTensor, sample_rate: int) -> None:
         if torch is None:
             raise MediaProcessingError("PyTorch is required to write Demucs WAV outputs.")
 

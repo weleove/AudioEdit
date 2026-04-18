@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 
-import { buildDownloadUrl, createJob, getJobs } from "./api";
+import { OutputAudioPreview, SelectedFileWaveformPreview } from "./AudioPreview";
+import { createJob, downloadJobResult, getJobs } from "./api";
 import type { JobResponse, JobStatus, OperationType } from "./types";
 
 type Language = "en" | "zh";
@@ -41,7 +42,33 @@ interface Copy {
   createdAtLabel: string;
   updatedAtLabel: string;
   downloadResult: string;
+  savingResult: string;
+  inputWaveformTitle: string;
+  outputWaveformTitle: string;
+  outputAudioTitle: string;
+  previewLoading: string;
+  previewUnavailable: string;
+  durationLabel: string;
+  previewFailed: string;
 }
+
+interface SaveFilePickerType {
+  description?: string;
+  accept: Record<string, string[]>;
+}
+
+type SaveFilePickerWindow = Window & {
+  showSaveFilePicker?: (options?: {
+    suggestedName?: string;
+    excludeAcceptAllOption?: boolean;
+    types?: SaveFilePickerType[];
+  }) => Promise<{
+    createWritable: () => Promise<{
+      write: (data: Blob) => Promise<void>;
+      close: () => Promise<void>;
+    }>;
+  }>;
+};
 
 const OPERATION_ORDER: OperationType[] = [
   "extract_instrumental",
@@ -115,6 +142,14 @@ const COPY_BY_LANGUAGE: Record<Language, Copy> = {
     createdAtLabel: "Created",
     updatedAtLabel: "Updated",
     downloadResult: "Download result",
+    savingResult: "Saving...",
+    inputWaveformTitle: "Input waveform",
+    outputWaveformTitle: "Output waveform",
+    outputAudioTitle: "Result audio preview",
+    previewLoading: "Generating preview...",
+    previewUnavailable: "Preview is unavailable for this media in the current browser.",
+    durationLabel: "Duration",
+    previewFailed: "Failed to generate the media preview.",
   },
   zh: {
     htmlLang: "zh-CN",
@@ -173,6 +208,14 @@ const COPY_BY_LANGUAGE: Record<Language, Copy> = {
     createdAtLabel: "创建时间",
     updatedAtLabel: "更新时间",
     downloadResult: "下载结果",
+    savingResult: "保存中...",
+    inputWaveformTitle: "\u8f93\u5165\u6ce2\u5f62",
+    outputWaveformTitle: "\u8f93\u51fa\u6ce2\u5f62",
+    outputAudioTitle: "\u8f93\u51fa\u97f3\u9891\u8bd5\u542c",
+    previewLoading: "\u6b63\u5728\u751f\u6210\u9884\u89c8...",
+    previewUnavailable: "\u5f53\u524d\u6d4f\u89c8\u5668\u6682\u65f6\u65e0\u6cd5\u751f\u6210\u8be5\u5a92\u4f53\u7684\u9884\u89c8\u3002",
+    durationLabel: "\u65f6\u957f",
+    previewFailed: "\u5a92\u4f53\u9884\u89c8\u751f\u6210\u5931\u8d25\u3002",
   },
 };
 
@@ -250,12 +293,39 @@ function formatStartLabel(language: Language, action: string, title: string): st
   return language === "zh" ? `${action}${title}` : `${action} ${title}`;
 }
 
+function getFilenameExtension(filename: string): string | null {
+  const parts = filename.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const extension = parts[parts.length - 1]?.trim().toLowerCase();
+  return extension ? `.${extension}` : null;
+}
+
+function buildPickerTypes(suggestedName: string, mimeType: string): SaveFilePickerType[] | undefined {
+  const extension = getFilenameExtension(suggestedName);
+  if (!extension || !mimeType) {
+    return undefined;
+  }
+
+  return [
+    {
+      description: `${extension.slice(1).toUpperCase()} media`,
+      accept: {
+        [mimeType]: [extension],
+      },
+    },
+  ];
+}
+
 export default function App() {
   const [language, setLanguage] = useState<Language>(() => getInitialLanguage());
   const [selectedOperation, setSelectedOperation] = useState<OperationType>("extract_instrumental");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [jobs, setJobs] = useState<JobResponse[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [downloadingJobId, setDownloadingJobId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const copy = COPY_BY_LANGUAGE[language];
@@ -321,6 +391,50 @@ export default function App() {
       setErrorMessage(message);
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function saveBlobToLocalFile(blob: Blob, suggestedName: string) {
+    const pickerWindow = window as SaveFilePickerWindow;
+
+    if (typeof pickerWindow.showSaveFilePicker === "function") {
+      const handle = await pickerWindow.showSaveFilePicker({
+        suggestedName,
+        types: buildPickerTypes(suggestedName, blob.type),
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = suggestedName;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+
+  async function handleDownload(job: JobResponse) {
+    if (!job.download_url) {
+      return;
+    }
+
+    setDownloadingJobId(job.job_id);
+    setErrorMessage(null);
+
+    try {
+      const { blob, filename } = await downloadJobResult(job.download_url);
+      await saveBlobToLocalFile(blob, filename);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Request failed.";
+      setErrorMessage(message);
+    } finally {
+      setDownloadingJobId(null);
     }
   }
 
@@ -424,6 +538,8 @@ export default function App() {
               <strong>{selectedFile ? selectedFile.name : copy.noFileSelected}</strong>
             </div>
 
+            <SelectedFileWaveformPreview file={selectedFile} copy={copy} />
+
             {errorMessage ? <div className="error-box">{localizeRuntimeText(language, errorMessage)}</div> : null}
 
             <button className="submit-button" type="submit" disabled={isSubmitting}>
@@ -467,10 +583,19 @@ export default function App() {
 
                     {job.error ? <div className="error-inline">{localizeRuntimeText(language, job.error)}</div> : null}
 
+                    {job.download_url ? <OutputAudioPreview downloadUrl={job.download_url} copy={copy} /> : null}
+
                     {job.download_url ? (
-                      <a className="download-link" href={buildDownloadUrl(job.download_url)}>
-                        {copy.downloadResult}
-                      </a>
+                      <button
+                        type="button"
+                        className="download-link"
+                        disabled={downloadingJobId === job.job_id}
+                        onClick={() => {
+                          void handleDownload(job);
+                        }}
+                      >
+                        {downloadingJobId === job.job_id ? copy.savingResult : copy.downloadResult}
+                      </button>
                     ) : null}
                   </article>
                 ))}

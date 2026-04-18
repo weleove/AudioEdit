@@ -24,13 +24,13 @@ class JobRecord:
     id: str
     operation: OperationType
     filename: str
-    input_path: str
+    input_key: str
     status: JobStatus = "queued"
     message: str = "Job created and waiting to start."
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
     error: str | None = None
-    output_path: str | None = None
+    output_key: str | None = None
     output_name: str | None = None
 
     def touch(self) -> None:

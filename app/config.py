@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,17 +21,20 @@ class Settings:
     demucs_segment: str = field(default_factory=lambda: os.getenv("DEMUCS_SEGMENT", "7"))
     demucs_jobs: int = field(default_factory=lambda: int(os.getenv("DEMUCS_JOBS", "0")))
     ffmpeg_bin: str = field(default_factory=lambda: os.getenv("FFMPEG_BIN", "ffmpeg"))
+    redis_url: str = field(default_factory=lambda: os.getenv("REDIS_URL", ""))
+    binary_key_prefix: str = field(default_factory=lambda: os.getenv("BINARY_KEY_PREFIX", "audioedit"))
+    binary_ttl_seconds: int = field(default_factory=lambda: int(os.getenv("BINARY_TTL_SECONDS", "3600")))
+    temp_root_raw: str = field(
+        default_factory=lambda: os.getenv(
+            "TEMP_WORK_DIR",
+            tempfile.gettempdir(),
+        )
+    )
 
-    storage_dir: Path = field(init=False)
-    uploads_dir: Path = field(init=False)
-    outputs_dir: Path = field(init=False)
-    work_dir: Path = field(init=False)
+    temp_root_dir: Path = field(init=False)
 
     def __post_init__(self) -> None:
-        self.storage_dir = self.base_dir / "storage"
-        self.uploads_dir = self.storage_dir / "uploads"
-        self.outputs_dir = self.storage_dir / "outputs"
-        self.work_dir = self.storage_dir / "work"
+        self.temp_root_dir = Path(self.temp_root_raw)
 
     @property
     def frontend_origins(self) -> list[str]:
@@ -41,8 +45,7 @@ class Settings:
         return self.max_upload_size_mb * 1024 * 1024
 
     def ensure_directories(self) -> None:
-        for directory in (self.storage_dir, self.uploads_dir, self.outputs_dir, self.work_dir):
-            directory.mkdir(parents=True, exist_ok=True)
+        self.temp_root_dir.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

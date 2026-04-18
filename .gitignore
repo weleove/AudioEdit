@@ -1,9 +1,9 @@
-backend/.venv/
-backend/storage/uploads/
-backend/storage/outputs/
-backend/storage/work/
-frontend/node_modules/
-frontend/dist/
+.venv/
+storage/uploads/
+storage/outputs/
+storage/work/
+interface/node_modules/
+interface/dist/
 __pycache__/
 *.pyc
 *.pyo

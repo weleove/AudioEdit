@@ -323,6 +323,12 @@ input {
   word-break: break-word;
 }
 
+.upload-panel .preview-card,
+.upload-panel .preview-placeholder,
+.upload-panel .preview-note {
+  margin-top: 18px;
+}
+
 .submit-button,
 .download-link {
   display: inline-flex;
@@ -391,6 +397,12 @@ input {
   line-height: 1.7;
 }
 
+.output-preview-stack,
+.job-card .preview-placeholder,
+.job-card .preview-note {
+  margin-top: 16px;
+}
+
 .job-meta {
   display: grid;
   gap: 4px;
@@ -429,9 +441,74 @@ input {
 .download-link {
   margin-top: 16px;
   width: fit-content;
+  border: 0;
   background: rgba(182, 84, 42, 0.12);
   color: var(--accent-strong);
+  cursor: pointer;
   font-weight: 700;
+}
+
+.download-link:disabled {
+  cursor: wait;
+  opacity: 0.75;
+}
+
+.preview-card {
+  padding: 16px;
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(255, 249, 241, 0.92), rgba(255, 255, 255, 0.7));
+  border: 1px solid rgba(90, 58, 33, 0.12);
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.preview-header strong {
+  font-size: 0.98rem;
+}
+
+.preview-header span,
+.preview-placeholder,
+.preview-note {
+  color: var(--muted);
+}
+
+.preview-placeholder,
+.preview-note {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px dashed rgba(90, 58, 33, 0.16);
+  background: rgba(255, 250, 243, 0.72);
+}
+
+.preview-note {
+  color: var(--warning);
+}
+
+.waveform-bars {
+  display: grid;
+  grid-template-columns: repeat(72, minmax(0, 1fr));
+  align-items: end;
+  gap: 3px;
+  height: 92px;
+}
+
+.waveform-bar {
+  display: block;
+  min-height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(182, 84, 42, 0.38), rgba(138, 52, 21, 0.96));
+  box-shadow: 0 10px 20px rgba(138, 52, 21, 0.12);
+}
+
+.preview-audio {
+  width: 100%;
 }
 
 .empty-state {
@@ -469,6 +546,10 @@ input {
   }
 
   .language-switch {
+    align-items: flex-start;
+  }
+
+  .preview-header {
     align-items: flex-start;
   }
 }

@@ -11,8 +11,8 @@ class JobStore:
         self._jobs: dict[str, JobRecord] = {}
         self._lock = Lock()
 
-    def create(self, job_id: str, operation: OperationType, filename: str, input_path: str) -> JobRecord:
-        job = JobRecord(id=job_id, operation=operation, filename=filename, input_path=input_path)
+    def create(self, job_id: str, operation: OperationType, filename: str, input_key: str) -> JobRecord:
+        job = JobRecord(id=job_id, operation=operation, filename=filename, input_key=input_key)
         with self._lock:
             self._jobs[job_id] = job
         return copy.deepcopy(job)
@@ -34,4 +34,3 @@ class JobStore:
                 setattr(job, key, value)
             job.touch()
             return copy.deepcopy(job)
-
