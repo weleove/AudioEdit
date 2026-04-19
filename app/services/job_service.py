@@ -90,24 +90,26 @@ class JobService:
             # 将输入文件写入临时目录
             input_path = temp_dir / self.sanitize_filename(job.filename)
             input_path.write_bytes(source_bytes)
-            output_path = self._build_output_path(job.operation, temp_dir)
+            output_path = self._build_output_path(job.operation, temp_dir, job.filename)
 
             # 根据操作类型执行相应的处理
             if job.operation == "extract_audio_from_video":
                 self.processor.extract_audio_from_video(input_path, output_path)
             elif job.operation == "denoise_audio":
                 normalized_path = self.processor.normalize_audio(input_path, working_dir)
-                self.processor.denoise_audio(normalized_path, output_path)
+                temp_wav = working_dir / "denoised_temp.wav"
+                self.processor.denoise_audio(normalized_path, temp_wav)
+                self.processor.convert_to_mp3(temp_wav, output_path)
             elif job.operation == "extract_vocals":
                 normalized_path = self.processor.normalize_audio(input_path, working_dir)
                 demucs_dir = working_dir / "demucs"
                 result_path = self.processor.separate_stems(normalized_path, demucs_dir, stem="vocals")
-                self.processor.copy_to_output(result_path, output_path)
+                self.processor.convert_to_mp3(result_path, output_path)
             elif job.operation == "extract_instrumental":
                 normalized_path = self.processor.normalize_audio(input_path, working_dir)
                 demucs_dir = working_dir / "demucs"
                 result_path = self.processor.separate_stems(normalized_path, demucs_dir, stem="instrumental")
-                self.processor.copy_to_output(result_path, output_path)
+                self.processor.convert_to_mp3(result_path, output_path)
             else:
                 raise MediaProcessingError("Unknown operation type.")
 
@@ -140,12 +142,15 @@ class JobService:
             if temp_dir is not None:
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def _build_output_path(self, operation: OperationType, output_dir: Path) -> Path:
-        """根据操作类型构建输出文件路径"""
+    def _build_output_path(self, operation: OperationType, output_dir: Path, original_filename: str) -> Path:
+        """根据操作类型和原始文件名构建输出文件路径"""
+        # 获取原始文件名（不含扩展名）
+        base_name = Path(original_filename).stem
+
         if operation == "extract_audio_from_video":
-            return output_dir / "extracted_audio.mp3"
+            return output_dir / f"{base_name}_audio.mp3"
         if operation == "denoise_audio":
-            return output_dir / "denoised.wav"
+            return output_dir / f"{base_name}_denoised.mp3"
         if operation == "extract_vocals":
-            return output_dir / "vocals.wav"
-        return output_dir / "instrumental.wav"
+            return output_dir / f"{base_name}_vocals.mp3"
+        return output_dir / f"{base_name}_instrumental.mp3"

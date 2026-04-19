@@ -207,6 +207,23 @@ class MediaProcessor:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, output_path)
 
+    def convert_to_mp3(self, source_path: Path, output_path: Path) -> None:
+        """将音频文件转换为 MP3 格式以减小文件大小"""
+        self._run_command(
+            [
+                self.settings.ffmpeg_bin,
+                "-y",
+                "-i",
+                str(source_path),
+                "-acodec",
+                "libmp3lame",  # 使用 MP3 编码器
+                "-q:a",
+                "2",  # 音质等级（0-9，2 为高质量）
+                str(output_path),
+            ],
+            "MP3 conversion failed",
+        )
+
     def _run_command(self, command: list[str], title: str) -> None:
         """运行外部命令（如 FFmpeg）并处理错误"""
         env = self._build_command_env()
