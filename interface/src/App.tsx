@@ -157,9 +157,9 @@ const COPY_BY_LANGUAGE: Record<Language, Copy> = {
     pageTitle: "AudioEdit 音频编辑工作台",
     brand: "AudioEdit Studio",
     languageLabel: "语言",
-    heroTitle: "一个专注于现代音频编辑流程的在线工作台。",
+    heroTitle: "一个用于音频编辑的在线工作台。",
     heroDescription:
-      "前端基于 React，后端基于 FastAPI。你可以上传音频或视频，发起处理任务，查看任务状态，并在同一面板中下载处理结果。",
+      "你可以上传音频或视频，发起处理任务，查看任务状态，并在同一面板中下载处理结果。",
     metrics: {
       workflows: "个处理流程",
       backend: "异步后端接口",
@@ -472,21 +472,6 @@ export default function App() {
 
             <h1>{copy.heroTitle}</h1>
             <p>{copy.heroDescription}</p>
-          </div>
-
-          <div className="hero-metrics">
-            <div className="metric-card">
-              <strong>4</strong>
-              <span>{copy.metrics.workflows}</span>
-            </div>
-            <div className="metric-card">
-              <strong>FastAPI</strong>
-              <span>{copy.metrics.backend}</span>
-            </div>
-            <div className="metric-card">
-              <strong>React</strong>
-              <span>{copy.metrics.frontend}</span>
-            </div>
           </div>
         </section>
 
