@@ -4,6 +4,8 @@ import { downloadJobResult } from "./api";
 
 interface AudioPreviewCopy {
   inputWaveformTitle: string;
+  inputAudioTitle: string;
+  inputVideoTitle: string;
   outputWaveformTitle: string;
   outputAudioTitle: string;
   previewLoading: string;
@@ -21,10 +23,16 @@ interface OutputWaveformData extends WaveformData {
   audioUrl: string;
 }
 
+interface SelectedMediaPreviewData {
+  kind: "audio" | "video";
+  mediaUrl: string;
+  waveform?: WaveformData;
+}
+
 type InputPreviewState =
   | { status: "idle" }
-  | { status: "loading" }
-  | { status: "ready"; data: WaveformData }
+  | { status: "loading"; data?: SelectedMediaPreviewData }
+  | { status: "ready"; data: SelectedMediaPreviewData }
   | { status: "error" };
 
 type OutputPreviewState =
@@ -105,6 +113,53 @@ function formatDuration(durationSeconds: number): string {
   return [minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
 }
 
+const AUDIO_EXTENSIONS = new Set([
+  "aac",
+  "flac",
+  "m4a",
+  "mp3",
+  "ogg",
+  "opus",
+  "wav",
+]);
+
+const VIDEO_EXTENSIONS = new Set([
+  "avi",
+  "m4v",
+  "mkv",
+  "mov",
+  "mp4",
+  "mpeg",
+  "mpg",
+  "ogv",
+]);
+
+function getFileExtension(filename: string): string {
+  const extension = filename.split(".").pop()?.trim().toLowerCase();
+  return extension ?? "";
+}
+
+function getSelectedMediaKind(file: File): SelectedMediaPreviewData["kind"] | null {
+  if (file.type.startsWith("audio/")) {
+    return "audio";
+  }
+
+  if (file.type.startsWith("video/")) {
+    return "video";
+  }
+
+  const extension = getFileExtension(file.name);
+  if (AUDIO_EXTENSIONS.has(extension)) {
+    return "audio";
+  }
+
+  if (VIDEO_EXTENSIONS.has(extension)) {
+    return "video";
+  }
+
+  return null;
+}
+
 function WaveformBlock({
   title,
   durationLabel,
@@ -132,7 +187,7 @@ function WaveformBlock({
   );
 }
 
-export function SelectedFileWaveformPreview({
+export function SelectedFileMediaPreview({
   file,
   copy,
 }: {
@@ -143,6 +198,7 @@ export function SelectedFileWaveformPreview({
 
   useEffect(() => {
     let disposed = false;
+    let mediaUrl: string | null = null;
 
     if (!file) {
       setState({ status: "idle" });
@@ -151,24 +207,67 @@ export function SelectedFileWaveformPreview({
       };
     }
 
-    setState({ status: "loading" });
+    const kind = getSelectedMediaKind(file);
+    if (!kind) {
+      setState({ status: "error" });
+      return () => {
+        disposed = true;
+      };
+    }
 
-    void file
-      .arrayBuffer()
-      .then((arrayBuffer) => buildWaveformFromArrayBuffer(arrayBuffer))
-      .then((data) => {
-        if (!disposed) {
-          setState({ status: "ready", data });
-        }
-      })
-      .catch(() => {
-        if (!disposed) {
-          setState({ status: "error" });
-        }
+    mediaUrl = URL.createObjectURL(file);
+
+    if (kind === "video") {
+      setState({
+        status: "ready",
+        data: {
+          kind,
+          mediaUrl,
+        },
       });
+    } else {
+      setState({
+        status: "loading",
+        data: {
+          kind,
+          mediaUrl,
+        },
+      });
+
+      void file
+        .arrayBuffer()
+        .then((arrayBuffer) => buildWaveformFromArrayBuffer(arrayBuffer))
+        .then((waveform) => {
+          if (!disposed) {
+            setState({
+              status: "ready",
+              data: {
+                kind,
+                mediaUrl: mediaUrl as string,
+                waveform,
+              },
+            });
+          }
+        })
+        .catch(() => {
+          if (!disposed) {
+            setState({
+              status: "ready",
+              data: {
+                kind,
+                mediaUrl: mediaUrl as string,
+              },
+            });
+          }
+        });
+    }
 
     return () => {
       disposed = true;
+
+      if (mediaUrl) {
+        URL.revokeObjectURL(mediaUrl);
+      }
     };
   }, [file]);
 
@@ -176,7 +275,7 @@ export function SelectedFileWaveformPreview({
     return null;
   }
 
-  if (state.status === "loading") {
+  if (state.status === "loading" && !state.data) {
     return <div className="preview-placeholder">{copy.previewLoading}</div>;
   }
 
@@ -184,11 +283,34 @@ export function SelectedFileWaveformPreview({
     return <div className="preview-note">{copy.previewUnavailable}</div>;
   }
 
-  if (state.status !== "ready") {
+  const previewData = state.status === "loading" ? state.data : state.status === "ready" ? state.data : null;
+  if (!previewData) {
     return null;
   }
 
-  return <WaveformBlock title={copy.inputWaveformTitle} durationLabel={copy.durationLabel} data={state.data} />;
+  return (
+    <div className="upload-preview-stack">
+      {previewData.kind === "audio" && previewData.waveform ? (
+        <WaveformBlock title={copy.inputWaveformTitle} durationLabel={copy.durationLabel} data={previewData.waveform} />
+      ) : null}
+
+      <section className="preview-card">
+        <div className="preview-header">
+          <strong>{previewData.kind === "audio" ? copy.inputAudioTitle : copy.inputVideoTitle}</strong>
+        </div>
+
+        {previewData.kind === "audio" ? (
+          <audio className="preview-audio" controls preload="metadata" src={previewData.mediaUrl} />
+        ) : (
+          <video className="preview-video" controls preload="metadata" src={previewData.mediaUrl} />
+        )}
+      </section>
+
+      {previewData.kind === "audio" && state.status === "loading" ? (
+        <div className="preview-placeholder">{copy.previewLoading}</div>
+      ) : null}
+    </div>
+  );
 }
 
 export function OutputAudioPreview({

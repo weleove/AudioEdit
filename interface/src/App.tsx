@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 
-import { OutputAudioPreview, SelectedFileWaveformPreview } from "./AudioPreview";
+import { OutputAudioPreview, SelectedFileMediaPreview } from "./AudioPreview";
 import { createJob, downloadJobResult, getJobs } from "./api";
 import type { JobResponse, JobStatus, OperationType } from "./types";
 
@@ -44,6 +44,8 @@ interface Copy {
   downloadResult: string;
   savingResult: string;
   inputWaveformTitle: string;
+  inputAudioTitle: string;
+  inputVideoTitle: string;
   outputWaveformTitle: string;
   outputAudioTitle: string;
   previewLoading: string;
@@ -144,6 +146,8 @@ const COPY_BY_LANGUAGE: Record<Language, Copy> = {
     downloadResult: "Download result",
     savingResult: "Saving...",
     inputWaveformTitle: "Input waveform",
+    inputAudioTitle: "Input audio preview",
+    inputVideoTitle: "Input video preview",
     outputWaveformTitle: "Output waveform",
     outputAudioTitle: "Result audio preview",
     previewLoading: "Generating preview...",
@@ -210,6 +214,8 @@ const COPY_BY_LANGUAGE: Record<Language, Copy> = {
     downloadResult: "下载结果",
     savingResult: "保存中...",
     inputWaveformTitle: "\u8f93\u5165\u6ce2\u5f62",
+    inputAudioTitle: "\u8f93\u5165\u97f3\u9891\u8bd5\u542c",
+    inputVideoTitle: "\u8f93\u5165\u89c6\u9891\u9884\u89c8",
     outputWaveformTitle: "\u8f93\u51fa\u6ce2\u5f62",
     outputAudioTitle: "\u8f93\u51fa\u97f3\u9891\u8bd5\u542c",
     previewLoading: "\u6b63\u5728\u751f\u6210\u9884\u89c8...",
@@ -523,7 +529,7 @@ export default function App() {
               <strong>{selectedFile ? selectedFile.name : copy.noFileSelected}</strong>
             </div>
 
-            <SelectedFileWaveformPreview file={selectedFile} copy={copy} />
+            <SelectedFileMediaPreview file={selectedFile} copy={copy} />
 
             {errorMessage ? <div className="error-box">{localizeRuntimeText(language, errorMessage)}</div> : null}
 
