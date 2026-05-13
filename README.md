@@ -68,7 +68,16 @@ uv sync
 
 ### 2. 手动安装 FFmpeg
 
-推荐在 Windows 上手动安装 FFmpeg，步骤如下：
+最好是在linux环境装，Windows可能会遇到一些问题
+我是在wsl2环境：
+```bash
+sudo apt update
+sudo apt install ffmpeg
+# 装完后验证一下
+ffmpeg -version
+```
+
+在 Windows 上手动安装 FFmpeg，步骤如下：
 
 1. 打开 FFmpeg Windows 构建发布页：
    `https://www.gyan.dev/ffmpeg/builds/`
@@ -99,7 +108,7 @@ ffmpeg -version
 C:\ffmpeg\bin\ffmpeg.exe -version
 ```
 
-### 3. 准备 Redis
+### 3. 准备 Redis（不搞也没事）
 
 当前版本会优先把上传文件和处理结果暂存到 Redis。
 如果没有配置 `REDIS_URL`，系统会退回到进程内临时内存存储：
